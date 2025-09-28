@@ -1,82 +1,199 @@
-# Kuro
+# Kuro – Local 4-Node Cluster
 
-Kuro is Kadena's high-performance permissioned blockchain, based upon the ScalableBFT consensus algorithm
-by Will Martino. Kuro also features _counterparty confidentiality_ leveraging the Noise protocol,
-and runs the Pact smart contract language.
+This repository demonstrates how to spin up a **4-node Kuro cluster** locally using Docker.  
+We updated the base image from **Ubuntu 16.04 → Ubuntu 22.04**, dropped the FPComplete apt repo, and now install Stack directly.
 
-For more information:
-- [Pact](https://github.com/kadena-io/pact)
-- [ScalableBFT whitepaper](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_aeb9004965c34efd9c48993c4e63a9bb.pdf)
-- [Confidentiality whitepaper](https://d31d887a-c1e0-47c2-aa51-c69f9f998b07.filesusr.com/ugd/86a16f_29bcbfd45f9e48139e6db4e5a0fbf5f1.pdf)
+---
 
-## Beta and AWS Build Instructions
+## ⚙️ Prerequisites
 
-### Manual Part
+- Ubuntu host (e.g. AWS EC2)
+- Installed:
+  - Docker
+  - `git`, `build-essential`, `curl`, `jq`
+- Open ports: **8000-8003**
 
-1. Create a `submodules` directory
-2. Inside the `submodule/` directory, git clone all packages found in `stack.yaml`
-3. Checkout the correct version of everything found in the `stack.yaml` packages section (example):
+---
 
-```
-# stack.yaml
-packages:
-- '.'
-- location:
-    git: git@bitbucket.org:spopejoy/pact.git
-    commit: 41d0cae570af056a06868298546a806da2d2eadc
-  extra-dep: true
-- location:
-    git: git@bitbucket.org:spopejoy/pact-persist.git
-    commit: b9c627663d402ec7d2fe9665872e9c01ab8de07a
-  extra-dep: true
-- location:
-    git: https://github.com/abbradar/hdbc-odbc.git
-    commit: 79ffd1f5060d2c8b5cbdfd4eba8ae6414372d6b7
-  extra-dep: true
-- location:
-    git: git@github.com:kadena-io/thyme.git
-    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
-  extra-dep: true
+## 🚀 Steps
 
-## So...
-cd submodules/pact
-git fetch && git checkout 41d0cae570af056a06868298546a806da2d2eadc
-cd ../hdbc-odbc
-git fetch && git checkout 79ffd1f5060d2c8b5cbdfd4eba8ae6414372d6b7
-cd ../pact-persist
-git fetch && git checkout b9c627663d402ec7d2fe9665872e9c01ab8de07a
-cd ../thyme
-git fetch && git checkout 6ee9fcb026ebdb49b810802a981d166680d867c9
+### 1. Clone the repo
+
+```bash
+git clone
+cd kuro
 ```
 
-4. Create a stack-docker.yaml file as follows:
+## Build the base Docker image
 
+We replaced the old 16.04 base with Ubuntu 22.04.
+
+docker/ubuntu-base.Dockerfile:
+
+FROM ubuntu:22.04
+
+```bash 
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+      ca-certificates curl wget git \
+      build-essential pkg-config \
+      libgmp-dev zlib1g-dev libtinfo5 libncurses5 \
+      libssl-dev libffi-dev libpcre3-dev \
+      libsqlite3-dev libzmq3-dev \
+      python3-minimal \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Stack
+RUN curl -sSL https://get.haskellstack.org/ | sh -s - -f && stack --version
+
+# GHC toolchain
+RUN stack --resolver lts-13.24 setup
+
+WORKDIR /work
 ```
-> cp stack.yaml stack-docker.yaml
 
-# Edit all of these...
-- location:
-    git: git@github.com:kadena-io/thyme.git
-    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
-  extra-dep: true
-# ...to be these
-- location: submodules/thyme
-  extra-dep: true
+## Build it:
+
+```sudo docker build -t kadena-base:ubuntu-16.04 -f docker/ubuntu-base.Dockerfile . ```
+
+## 3 uild Kuro binaries
+
+```bash
+UIDGID="$(id -u):$(id -g)"
+sudo docker run --rm -it \
+  -v "$PWD":/work \
+  -w /work \
+  -e STACK_ROOT=/work/.stack \
+  --user "$UIDGID" \
+  kadena-base:ubuntu-16.04 \
+  bash -lc 'stack build :kadenaserver :kadenaclient :genconfs --fast --no-run-tests --ghc-options "-j$(nproc)" && mkdir -p bin && cp -f .stack-work/install/*/*/*/bin/{kadenaserver,kadenaclient,genconfs} bin/'
 ```
 
-NB: we do this because it's easier than fighting with either submodules or getting docker to be able to clone on it's own
+You now have:
 
-### Automated Part
-Install `npm`. On Mac OS, you can run `brew install node`, which installs NodeJS and npm.
+```bash
+bin/kadenaserver
+bin/kadenaclient
+bin/genconfs
+```
 
-Make sure that `kadena` is building and all tests are passing.
+## Generate configs
 
-Start Docker with a memory allowance of at least 4 GB.
+```bash
+rm -f conf/* || true
+printf "\n\n4\n\n\n\n\n\n\n\n\n\n\n\n" | ./bin/genconfs
+ls conf
+```
 
-Run `./scripts/build-beta-distro.sh beta` to build kadena-beta, or
-run `./scripts/build-beta-distro.sh aws` to build kadena-aws.
-Then go get a coffee because it'll take a while.
+You should see configs like:
 
-When it's done, the script outputs the file `kadena-beta-\<version number\>.tgz`
-or `kadena-aws-\<version number\>.tgz`. If the file is missing a version number,
-add it to .tgz file created.
+```bash
+10000-cluster.yaml 10001-cluster.yaml 10002-cluster.yaml 10003-cluster.yaml
+admin0-keypair.yaml client.yaml
+```
+
+## Run the 4-node cluster
+
+```bash
+Option A – host networking (recommended):
+
+sudo docker run -d --name kuro0 --network host -v "$PWD":/work -w /work \
+  kadena-base:ubuntu-16.04 /work/bin/kadenaserver --config conf/10000-cluster.yaml
+
+sudo docker run -d --name kuro1 --network host -v "$PWD":/work -w /work \
+  kadena-base:ubuntu-16.04 /work/bin/kadenaserver --config conf/10001-cluster.yaml
+
+sudo docker run -d --name kuro2 --network host -v "$PWD":/work -w /work \
+  kadena-base:ubuntu-16.04 /work/bin/kadenaserver --config conf/10002-cluster.yaml
+
+sudo docker run -d --name kuro3 --network host -v "$PWD":/work -w /work \
+  kadena-base:ubuntu-16.04 /work/bin/kadenaserver --config conf/10003-cluster.yaml
+```
+
+Check:
+
+```bash
+sudo docker ps
+tail -n 50 log/node*.log
+```
+
+## Start the client REPL
+
+```bash
+sudo docker run -it --network host \
+  -v "$PWD":/work -w /work \
+  kadena-base:ubuntu-16.04 \
+  /work/bin/kadenaclient --config conf/client.yaml
+```
+
+## Inside REPL:
+
+```bash
+node0> server 127.0.0.1:8000
+127.0.0.1:8000> format raw
+127.0.0.1:8000> local "(+ 1 2)"
+
+
+You should see a success response.
+For a transaction:
+
+127.0.0.1:8000> keys conf/keys-admin.yaml
+127.0.0.1:8000> exec "(+ 1 2)"
+```
+
+## Example contract deployment
+
+Create a simple Pact file:
+
+```bash
+my/hello.pact:
+
+(module hello GOV
+  (defcap GOV () true)
+  (defun ping:string () "pong")
+)
+```
+
+Deploy YAML:
+
+```bash
+my/hello-deploy.yaml:
+
+type: exec
+codeFile: my/hello.pact
+data:
+  GOV:
+    keys: ["<your-admin-public-key>"]
+    pred: "keys-all"
+keyPairs:
+  - public: "<your-admin-public-key>"
+    secret: "<your-admin-secret-key>"
+    scheme: ED25519
+nonce: "deploy-hello-1"
+```
+
+In client REPL:
+
+```bash
+127.0.0.1:8000> load my/hello-deploy.yaml
+```
+
+## Clean up
+
+```bash
+sudo docker rm -f kuro0 kuro1 kuro2 kuro3 || true
+rm -rf .stack .stack-work bin log conf
+```
+
+## 🔑 Notes
+
+Change made: Base image moved from Ubuntu 16.04 → 22.04; removed FPComplete apt repo; Stack installed via official script.
+
+Use format raw in the REPL to see JSON including request keys.
+
+Logs are written to log/node*.log.
+
+## ✅ Summary
+
+This setup runs a local 4-node Kuro cluster in Docker with modern Ubuntu 22.04 base, full client REPL, and sample contract deployment.

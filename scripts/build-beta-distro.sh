@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 verbose=1
 
@@ -53,7 +53,7 @@ safe rm -rf kadena-beta/conf && mkdir kadena-beta/conf
 safe rm -rf kadena-beta/demo && mkdir kadena-beta/demo
 safe rm -rf kadena-beta/setup && mkdir kadena-beta/setup
 
-version=`egrep "^version:" kadena.cabal | sed -e 's/^version: *\(.*\) *$/\1/'`
+version=`egrep "^version:" kuro.cabal | sed -e 's/^version: *\(.*\) *$/\1/'`
 if [ -z "$version" ]; then barf "Could not determine version"; fi
 chirp "Building version $version"
 

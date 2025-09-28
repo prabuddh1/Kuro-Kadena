@@ -1,0 +1,7 @@
+type: exec
+codeFile: ../my/kuro-compliance.pact
+keyPairs:
+  - public: "eecb589b005d4e636f228e859bb87b7e395a1baf6ccd4b1588be83c559ef15d0"
+    secret: "fa6a1c8497e05cb7683d496265e3c015e7d83956e1c752ffe1692d3c026a0f82"
+    scheme: ED25519
+nonce: "demo-hello-$(date +%s)"

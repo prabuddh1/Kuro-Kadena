@@ -22,7 +22,7 @@ extra-deps:
   - katip-0.6.3.0
   - FloatingHex-0.4
 
-  - git: git@github.com:kadena-io/pact.git
+  - git: https://github.com/kadena-io/pact.git
     commit: 5f19f4b19675d7130fee4c41edd38a7c5938c940
 
   # --- The following copied from Pact's stack.yaml --- #
